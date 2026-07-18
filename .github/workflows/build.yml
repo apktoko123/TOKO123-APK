@@ -1,0 +1,92 @@
+name: Build TOKO123 APK
+
+# Kapan robot ini jalan:
+on:
+  push:
+    tags:
+      - 'v*'          # tiap push tag versi (v1.0, v1.1, dst) -> build + RELEASE
+  workflow_dispatch:  # bisa juga dijalankan manual dari tab Actions (buat tes)
+
+permissions:
+  contents: write     # izin bikin Release & upload APK
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Ambil kode dari repo
+      - name: Checkout kode
+        uses: actions/checkout@v4
+
+      # 2. Siapkan Java 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      # 3. Buat google-services.json dari Secret (rahasia, gak disimpan di repo)
+      - name: Siapkan google-services.json
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          echo "google-services.json dibuat ($(wc -c < app/google-services.json) bytes)"
+
+      # 4. Kasih izin eksekusi ke gradlew
+      - name: Izin gradlew
+        run: chmod +x ./gradlew
+
+      # 5. Build APK release (belum ditandatangani)
+      - name: Build APK (unsigned)
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # 6. Ambil keystore dari Secret (Base64 -> file .jks)
+      - name: Siapkan keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/toko123.jks
+          echo "keystore dibuat ($(wc -c < $RUNNER_TEMP/toko123.jks) bytes)"
+
+      # 7. Tanda tangani + sejajarkan (zipalign) pakai tool resmi Android SDK
+      - name: Sign APK
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "Pakai build-tools: $BUILD_TOOLS"
+          IN=app/build/outputs/apk/release/app-release-unsigned.apk
+          # kalau gradle sudah kasih nama app-release.apk (karena signingConfig), pakai itu
+          if [ ! -f "$IN" ]; then IN=app/build/outputs/apk/release/app-release.apk; fi
+          echo "Input APK: $IN"
+
+          # zipalign dulu
+          $BUILD_TOOLS/zipalign -v -p 4 "$IN" aligned.apk
+
+          # tanda tangani
+          $BUILD_TOOLS/apksigner sign \
+            --ks $RUNNER_TEMP/toko123.jks \
+            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
+            --ks-pass pass:"${{ secrets.KEYSTORE_PASSWORD }}" \
+            --key-pass pass:"${{ secrets.KEY_PASSWORD }}" \
+            --out TOKO123.apk \
+            aligned.apk
+
+          # verifikasi tanda tangan
+          $BUILD_TOOLS/apksigner verify --verbose TOKO123.apk
+          echo "APK final: $(ls -lh TOKO123.apk | awk '{print $5}')"
+
+      # 8. Simpan APK sbg artifact (bisa didownload dari tab Actions, walau bukan tag)
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TOKO123-apk
+          path: TOKO123.apk
+
+      # 9. Kalau ini push TAG -> bikin Release + tempel APK otomatis
+      - name: Publish ke Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TOKO123.apk
+          name: TOKO123 ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
