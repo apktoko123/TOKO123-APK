@@ -1,0 +1,57 @@
+// ============ app/build.gradle ============
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'   // Firebase
+}
+
+android {
+    namespace 'com.toko123.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.toko123.app"   // ⚠️ HARUS SAMA dengan yang didaftarkan di Firebase
+        minSdk 21                          // Android 5.0 ke atas
+        targetSdk 34
+        versionCode 1                      // ⬅️ NAIKKAN tiap update (1, 2, 3...)
+        versionName "1.0"                  // ⬅️ NAIKKAN tiap update (1.0, 1.1, 2.0...)
+    }
+
+    signingConfigs {
+        release {
+            // Diisi otomatis oleh GitHub Actions dari Secret.
+            // Kalau build lokal tanpa keystore, biarkan kosong (pakai debug).
+            def kp = System.getenv("KEYSTORE_PATH")
+            if (kp != null) {
+                storeFile file(kp)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // pakai signing release kalau ada keystore, kalau nggak fallback ke debug
+            signingConfig System.getenv("KEYSTORE_PATH") != null ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'androidx.core:core:1.12.0'
+
+    implementation platform('com.google.firebase:firebase-bom:33.1.0')
+    implementation 'com.google.firebase:firebase-messaging'
+}

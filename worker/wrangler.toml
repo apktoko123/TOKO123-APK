@@ -1,0 +1,14 @@
+name = "toko123apk"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Database D1 — ganti database_id dengan hasil dari:
+#   wrangler d1 create toko123apk
+[[d1_databases]]
+binding = "DB"
+database_name = "toko123apk"
+database_id = "GANTI_DENGAN_ID_DARI_WRANGLER"
+
+# CATATAN: kunci Firebase TIDAK ditaruh di sini (bahaya kalau ke-commit).
+# Set lewat perintah ini, lalu paste isi service-account.json:
+#   wrangler secret put FIREBASE_SA_JSON
