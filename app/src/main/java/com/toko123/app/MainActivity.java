@@ -55,7 +55,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ====================== ⚙️ KONFIGURASI ======================
     // GANTI dengan alamat Worker kamu:
-    public static final String API_BASE = "https://toko123apk.demonnlord3.workers.dev";
+    public static final String API_BASE = "https://notif.apktoko123.workers.dev";
     // Harus SAMA dengan CONFIG.APP_KEY di worker.js:
     public static final String APP_KEY  = "tk123-app-key-x9f2";
     // Link cadangan kalau server tidak bisa dihubungi:
