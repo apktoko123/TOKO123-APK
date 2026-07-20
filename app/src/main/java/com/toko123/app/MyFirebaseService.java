@@ -109,13 +109,13 @@ public class MyFirebaseService extends FirebaseMessagingService {
         } catch (Exception ignored) {}
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_notif)   // icon putih di status bar (wajib Android)
+                .setSmallIcon(R.drawable.ic_notif)   // icon WARNA di status bar (trik: PNG warna solid)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setColor(0xFF2FF3D0)                 // warna aksen tosca TOKO123
+                // JANGAN setColor -> biar icon warna tampil apa adanya (gak di-tint jadi 1 warna)
                 .setContentIntent(pi)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
 
