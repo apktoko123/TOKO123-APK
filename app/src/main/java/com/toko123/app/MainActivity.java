@@ -99,18 +99,68 @@ public class MainActivity extends AppCompatActivity {
         setupBackButton();
 
         swipe.setColorSchemeColors(0xFF2FF3D0);
-        swipe.setOnRefreshListener(() -> web.reload());
 
-        // Jarak tarik minimum lebih jauh biar gak sensitif (tarik pelan gak refresh).
-        // Default ~64dp, kita naikin biar harus ditarik lebih jauh.
+        // ===== REFRESH HARUS DITARIK + DITAHAN ~1 DETIK =====
+        // SwipeRefreshLayout bawaan langsung refresh begitu jarak tarik tercapai.
+        // Kita ambil alih: MATIKAN trigger otomatis, deteksi sendiri via sentuhan.
+        // - Jari mulai turun dari posisi atas -> mulai hitung waktu.
+        // - Kalau ditahan sambil narik >= 1 detik -> baru reload.
+        // - Kalau dilepas / discroll cepat sebelum itu -> gak reload (scroll biasa).
+        swipe.setOnRefreshListener(() -> {
+            // matikan indikator bawaan; kita kontrol manual
+            swipe.setRefreshing(false);
+        });
+        // jarak tarik dibikin sangat jauh biar trigger bawaan hampir gak pernah kepicu
         int density = (int) getResources().getDisplayMetrics().density;
-        swipe.setDistanceToTriggerSync(140 * density); // ~140dp, harus tarik jauh
+        swipe.setDistanceToTriggerSync(9999 * density);
 
-        // Swipe-refresh CUMA aktif kalau halaman bener-bener di paling ATAS (scrollY==0).
-        // Pas lagi scroll di tengah/bawah -> swipe dimatikan -> gak akan ke-refresh.
-        web.getViewTreeObserver().addOnScrollChangedListener(() -> {
-            // web.getScrollY()==0 artinya udah mentok di paling atas
-            swipe.setEnabled(web.getScrollY() == 0);
+        // Deteksi manual: tarik + tahan di posisi paling atas
+        final Handler refreshHandler = new Handler(Looper.getMainLooper());
+        final Runnable[] refreshTask = new Runnable[1];
+        final float[] startY = new float[1];
+        final boolean[] armed = new boolean[1];   // sedang "siap-siap" refresh?
+
+        final int HOLD_MS = 1000;                 // harus tahan 1 detik
+        final float PULL_THRESHOLD = 90 * density; // jarak tarik minimal (dp)
+
+        web.setOnTouchListener((v, ev) -> {
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    startY[0] = ev.getY();
+                    armed[0] = false;
+                    if (refreshTask[0] != null) refreshHandler.removeCallbacks(refreshTask[0]);
+                    break;
+
+                case android.view.MotionEvent.ACTION_MOVE: {
+                    float dy = ev.getY() - startY[0]; // positif = jari turun (tarik ke bawah)
+                    boolean diAtas = web.getScrollY() == 0;
+                    if (diAtas && dy > PULL_THRESHOLD && !armed[0]) {
+                        // mulai hitung: kalau bertahan 1 detik -> refresh
+                        armed[0] = true;
+                        refreshTask[0] = () -> {
+                            if (armed[0]) {              // masih ditahan?
+                                swipe.setRefreshing(true);
+                                web.reload();
+                                armed[0] = false;
+                            }
+                        };
+                        refreshHandler.postDelayed(refreshTask[0], HOLD_MS);
+                    } else if (dy < PULL_THRESHOLD && armed[0]) {
+                        // jari balik naik / gak narik lagi -> batal
+                        armed[0] = false;
+                        if (refreshTask[0] != null) refreshHandler.removeCallbacks(refreshTask[0]);
+                    }
+                    break;
+                }
+
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    // jari dilepas sebelum 1 detik -> batal refresh
+                    armed[0] = false;
+                    if (refreshTask[0] != null) refreshHandler.removeCallbacks(refreshTask[0]);
+                    break;
+            }
+            return false; // JANGAN telan event -> scroll normal tetap jalan
         });
 
         // Ambil FCM token dulu, baru register
