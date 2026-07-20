@@ -101,24 +101,37 @@ public class MyFirebaseService extends FirebaseMessagingService {
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
         PendingIntent pi = PendingIntent.getActivity(this, (int) System.currentTimeMillis(), i, flags);
 
+        // Logo TOKO123 WARNA khusus notif (PNG murni) -> muncul di kanan tiap notif.
+        // Pakai drawable (bukan mipmap adaptive) biar dijamin kebaca sbg bitmap di semua Android.
+        Bitmap logoWarna = null;
+        try {
+            logoWarna = BitmapFactory.decodeResource(getResources(), R.drawable.ic_notif_large);
+        } catch (Exception ignored) {}
+
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_notif)
+                .setSmallIcon(R.drawable.ic_notif)   // icon putih di status bar (wajib Android)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setColor(0xFF2FF3D0)                 // warna aksen tosca TOKO123
                 .setContentIntent(pi)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
 
-        // Gambar besar (kalau ada)
+        // Default: pasang logo warna di kanan notif (largeIcon)
+        if (logoWarna != null) {
+            b.setLargeIcon(logoWarna);
+        }
+
+        // Kalau server kirim GAMBAR -> tampilkan gambar besar (banner), override logo
         if (imageUrl != null && !imageUrl.isEmpty()) {
             Bitmap bmp = downloadImage(imageUrl);
             if (bmp != null) {
                 b.setLargeIcon(bmp);
                 b.setStyle(new NotificationCompat.BigPictureStyle()
                         .bigPicture(bmp)
-                        .bigLargeIcon((Bitmap) null)
+                        .bigLargeIcon(logoWarna)      // pas notif dibuka, balik ke logo warna
                         .setSummaryText(body));
             }
         }
