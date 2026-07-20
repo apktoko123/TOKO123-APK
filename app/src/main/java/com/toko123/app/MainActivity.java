@@ -101,6 +101,18 @@ public class MainActivity extends AppCompatActivity {
         swipe.setColorSchemeColors(0xFF2FF3D0);
         swipe.setOnRefreshListener(() -> web.reload());
 
+        // Jarak tarik minimum lebih jauh biar gak sensitif (tarik pelan gak refresh).
+        // Default ~64dp, kita naikin biar harus ditarik lebih jauh.
+        int density = (int) getResources().getDisplayMetrics().density;
+        swipe.setDistanceToTriggerSync(140 * density); // ~140dp, harus tarik jauh
+
+        // Swipe-refresh CUMA aktif kalau halaman bener-bener di paling ATAS (scrollY==0).
+        // Pas lagi scroll di tengah/bawah -> swipe dimatikan -> gak akan ke-refresh.
+        web.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            // web.getScrollY()==0 artinya udah mentok di paling atas
+            swipe.setEnabled(web.getScrollY() == 0);
+        });
+
         // Ambil FCM token dulu, baru register
         fetchFcmTokenThenRegister();
     }
