@@ -1,227 +1,159 @@
 package com.toko123.app;
 
-import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageInfo;
 import android.graphics.Bitmap;
-import android.net.Uri;
+import android.graphics.BitmapFactory;
 import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.View;
-import android.webkit.CookieManager;
-import android.webkit.GeolocationPermissions;
-import android.webkit.PermissionRequest;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.widget.Toast;
 
-import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 
-import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingService;
+import com.google.firebase.messaging.RemoteMessage;
 
 import org.json.JSONObject;
 
-import java.io.OutputStream;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
- * TOKO123 — WebView App + Device Tracker + Push Notification
- *
- * Alur:
- *  1. Buka app -> ambil/buat Device ID (permanen)
- *  2. Ambil FCM Token dari Firebase ("nomor HP" buat notif)
- *  3. Kirim ke Worker (/api/register) -> dapat balasan target_url
- *  4. Buka target_url di WebView (link dari Worker, bisa diganti kapan aja)
- *  5. Kirim heartbeat tiap 60 detik selama app terbuka
+ * Ini "penjaga" yang tetap hidup walau APK ketutup.
+ * Firebase manggil kelas ini tiap ada notif masuk.
  */
-public class MainActivity extends AppCompatActivity {
+public class MyFirebaseService extends FirebaseMessagingService {
 
-    // ====================== ⚙️ KONFIGURASI ======================
-    // GANTI dengan alamat Worker kamu:
-    public static final String API_BASE = "https://notif.apktoko123.workers.dev";
-    // Harus SAMA dengan CONFIG.APP_KEY di worker.js:
-    public static final String APP_KEY  = "tk123-app-key-x9f2";
-    // Link cadangan kalau server tidak bisa dihubungi:
-    public static final String FALLBACK_URL = "https://cutt.ly/Toko1_Gacor";
-    // Kirim denyut tiap berapa detik:
-    private static final int HEARTBEAT_SEC = 60;
-    // ============================================================
+    private static final String CHANNEL = "toko123_promo";
 
-    private static final String PREF = "toko123_pref";
-    private static final String K_DEVICE_ID = "device_id";
-
-    private WebView web;
-    private SwipeRefreshLayout swipe;
-    private View splash;
-
-    private String deviceId;
-    private String fcmToken = "";
-    private String targetUrl = FALLBACK_URL;
-    private boolean firstLoadDone = false;
-
-    private final Handler ui = new Handler(Looper.getMainLooper());
-    private final ExecutorService pool = Executors.newFixedThreadPool(2);
-    private Runnable heartbeatTask;
-
-    @SuppressLint("SetJavaScriptEnabled")
+    /* ---- Notif masuk (app ketutup pun tetap kena) ---- */
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+    public void onMessageReceived(@NonNull RemoteMessage msg) {
+        String title = "TOKO123";
+        String body = "";
+        String clickUrl = "";
+        String image = "";
 
-        web = findViewById(R.id.webview);
-        swipe = findViewById(R.id.swipe);
-        splash = findViewById(R.id.splash);
-
-        createNotifChannel();
-        askNotifPermission();
-
-        deviceId = getOrCreateDeviceId();
-
-        setupWebView();
-        setupBackButton();
-
-        // ===== PULL-TO-REFRESH DIMATIKAN TOTAL =====
-        // Biar scroll ke atas (jari geser ke bawah) gak pernah ke-trigger refresh.
-        // Member tinggal scroll bebas naik-turun tanpa halaman ke-reload sendiri.
-        swipe.setEnabled(false);
-        swipe.setRefreshing(false);
-
-        // Ambil FCM token dulu, baru register
-        fetchFcmTokenThenRegister();
-    }
-
-    /* ---------------- DEVICE ID (permanen, tidak hilang walau clear cache) ---------------- */
-    private String getOrCreateDeviceId() {
-        SharedPreferences sp = getSharedPreferences(PREF, MODE_PRIVATE);
-        String id = sp.getString(K_DEVICE_ID, null);
-        if (id == null) {
-            id = UUID.randomUUID().toString();
-            sp.edit().putString(K_DEVICE_ID, id).apply();
+        if (msg.getNotification() != null) {
+            if (msg.getNotification().getTitle() != null) title = msg.getNotification().getTitle();
+            if (msg.getNotification().getBody() != null) body = msg.getNotification().getBody();
+            if (msg.getNotification().getImageUrl() != null) image = msg.getNotification().getImageUrl().toString();
         }
-        return id;
+        if (msg.getData() != null) {
+            if (msg.getData().containsKey("click_url")) clickUrl = msg.getData().get("click_url");
+            if (msg.getData().containsKey("image") && (image == null || image.isEmpty()))
+                image = msg.getData().get("image");
+            if (msg.getData().containsKey("title") && msg.getNotification() == null)
+                title = msg.getData().get("title");
+            if (msg.getData().containsKey("body") && msg.getNotification() == null)
+                body = msg.getData().get("body");
+        }
+        show(title, body, clickUrl, image);
     }
 
-    /* ---------------- FCM TOKEN ---------------- */
-    private void fetchFcmTokenThenRegister() {
-        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
-            if (task.isSuccessful() && task.getResult() != null) {
-                fcmToken = task.getResult();
+    /* ---- Token berubah -> kabarin server biar notif tetap nyampe ---- */
+    @Override
+    public void onNewToken(@NonNull String token) {
+        super.onNewToken(token);
+        SharedPreferences sp = getSharedPreferences("toko123_pref", Context.MODE_PRIVATE);
+        String deviceId = sp.getString("device_id", null);
+        if (deviceId == null) return;
+
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                JSONObject j = new JSONObject();
+                j.put("device_id", deviceId);
+                j.put("fcm_token", token);
+                j.put("app_key", MainActivity.APP_KEY);
+
+                URL u = new URL(MainActivity.API_BASE + "/api/token");
+                c = (HttpURLConnection) u.openConnection();
+                c.setRequestMethod("POST");
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(10000);
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                c.setRequestProperty("X-App-Key", MainActivity.APP_KEY);
+                c.getOutputStream().write(j.toString().getBytes("UTF-8"));
+                c.getResponseCode();
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
             }
-            // register jalan walau token gagal (biar tetap kehitung install)
-            pool.execute(this::register);
-        });
+        }).start();
     }
 
-    /* ---------------- REGISTER ke Worker ---------------- */
-    private void register() {
+    /* ---- Tampilkan notif ---- */
+    private void show(String title, String body, String clickUrl, String imageUrl) {
+        createChannel();
+
+        Intent i = new Intent(this, MainActivity.class);
+        i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (clickUrl != null && !clickUrl.isEmpty()) i.putExtra("click_url", clickUrl);
+
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent pi = PendingIntent.getActivity(this, (int) System.currentTimeMillis(), i, flags);
+
+        // Logo TOKO123 WARNA khusus notif (PNG murni) -> muncul di kanan tiap notif.
+        // Pakai drawable (bukan mipmap adaptive) biar dijamin kebaca sbg bitmap di semua Android.
+        Bitmap logoWarna = null;
         try {
-            JSONObject j = new JSONObject();
-            j.put("device_id", deviceId);
-            j.put("fcm_token", fcmToken);
-            j.put("apk_version", getAppVersionName());
-            j.put("apk_code", getAppVersionCode());
-            j.put("android_version", Build.VERSION.RELEASE);
-            j.put("sdk_int", Build.VERSION.SDK_INT);
-            j.put("brand", capitalize(Build.MANUFACTURER));
-            j.put("model", Build.MODEL);
-            j.put("notif_enabled", notifEnabled());
-            j.put("app_key", APP_KEY);
+            logoWarna = BitmapFactory.decodeResource(getResources(), R.drawable.ic_notif_large);
+        } catch (Exception ignored) {}
 
-            String resp = post("/api/register", j.toString());
-            if (resp != null) {
-                JSONObject r = new JSONObject(resp);
-                if (r.optBoolean("ok", false)) {
-                    String t = r.optString("target_url", "");
-                    if (!t.isEmpty()) targetUrl = t;
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notif)   // icon WARNA di status bar (trik: PNG warna solid)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                // JANGAN setColor -> biar icon warna tampil apa adanya (gak di-tint jadi 1 warna)
+                .setContentIntent(pi)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
 
-                    // cek update
-                    int latest = r.optInt("latest_code", 0);
-                    boolean force = r.optBoolean("force_update", false);
-                    String upUrl = r.optString("update_url", "");
-                    if (latest > getAppVersionCode() && !upUrl.isEmpty()) {
-                        ui.post(() -> showUpdateDialog(upUrl, force));
-                    }
-                }
-            }
-        } catch (Exception ignored) {
+        // Default: pasang logo warna di kanan notif (largeIcon)
+        if (logoWarna != null) {
+            b.setLargeIcon(logoWarna);
         }
-        // Buka web (pakai targetUrl dari server, atau fallback)
-        ui.post(this::loadTarget);
-        startHeartbeat();
-    }
 
-    private void loadTarget() {
-        if (!firstLoadDone) {
-            web.loadUrl(targetUrl);
-            firstLoadDone = true;
+        // Kalau server kirim GAMBAR -> tampilkan gambar besar (banner), override logo
+        if (imageUrl != null && !imageUrl.isEmpty()) {
+            Bitmap bmp = downloadImage(imageUrl);
+            if (bmp != null) {
+                b.setLargeIcon(bmp);
+                b.setStyle(new NotificationCompat.BigPictureStyle()
+                        .bigPicture(bmp)
+                        .bigLargeIcon(logoWarna)      // pas notif dibuka, balik ke logo warna
+                        .setSummaryText(body));
+            }
+        }
+
+        try {
+            NotificationManagerCompat.from(this)
+                    .notify((int) (System.currentTimeMillis() % 100000), b.build());
+        } catch (SecurityException ignored) {
+            // user matiin izin notif
         }
     }
 
-    /* ---------------- HEARTBEAT (denyut online) ---------------- */
-    private void startHeartbeat() {
-        if (heartbeatTask != null) return;
-        heartbeatTask = new Runnable() {
-            @Override public void run() {
-                pool.execute(() -> {
-                    try {
-                        JSONObject j = new JSONObject();
-                        j.put("device_id", deviceId);
-                        j.put("app_key", APP_KEY);
-                        post("/api/heartbeat", j.toString());
-                    } catch (Exception ignored) {}
-                });
-                ui.postDelayed(this, HEARTBEAT_SEC * 1000L);
-            }
-        };
-        ui.post(heartbeatTask);
-    }
-
-    private void stopHeartbeat() {
-        if (heartbeatTask != null) ui.removeCallbacks(heartbeatTask);
-        heartbeatTask = null;
-    }
-
-    /* ---------------- HTTP POST ---------------- */
-    private String post(String path, String body) {
+    private Bitmap downloadImage(String url) {
         HttpURLConnection c = null;
         try {
-            URL u = new URL(API_BASE + path);
-            c = (HttpURLConnection) u.openConnection();
-            c.setRequestMethod("POST");
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(10000);
-            c.setDoOutput(true);
-            c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            c.setRequestProperty("X-App-Key", APP_KEY);
-            try (OutputStream os = c.getOutputStream()) {
-                os.write(body.getBytes("UTF-8"));
-            }
-            int code = c.getResponseCode();
-            if (code < 200 || code >= 300) return null;
-            java.io.InputStream is = c.getInputStream();
-            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
-            return bo.toString("UTF-8");
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            c.setDoInput(true);
+            c.connect();
+            InputStream is = c.getInputStream();
+            return BitmapFactory.decodeStream(is);
         } catch (Exception e) {
             return null;
         } finally {
@@ -229,206 +161,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /* ---------------- WEBVIEW ---------------- */
-    private void setupWebView() {
-        WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);            // localStorage jalan
-        s.setDatabaseEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setSupportZoom(false);
-        s.setBuiltInZoomControls(false);
-        s.setJavaScriptCanOpenWindowsAutomatically(true);
-        s.setSupportMultipleWindows(false);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setAllowFileAccess(false);
-        s.setAllowContentAccess(false);
-
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
-                String url = req.getUrl().toString();
-                // Link luar (WA / Telegram / tel / mailto) -> buka app aslinya
-                if (url.startsWith("whatsapp:") || url.startsWith("tg:") || url.startsWith("mailto:")
-                        || url.startsWith("tel:") || url.startsWith("intent:")
-                        || url.contains("wa.me") || url.contains("api.whatsapp.com")
-                        || url.contains("t.me") || url.contains("telegram.me")) {
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                        return true;
-                    } catch (Exception e) {
-                        Toast.makeText(MainActivity.this, "Aplikasi tidak terpasang", Toast.LENGTH_SHORT).show();
-                        return true;
-                    }
-                }
-                return false; // sisanya tetap di dalam app
-            }
-
-            @Override
-            public void onPageStarted(WebView v, String url, Bitmap f) {
-            }
-
-            @Override
-            public void onPageFinished(WebView v, String url) {
-                swipe.setRefreshing(false);
-                swipe.setEnabled(false);   // pastikan pull-to-refresh tetap mati
-                if (splash.getVisibility() == View.VISIBLE) {
-                    splash.animate().alpha(0f).setDuration(350)
-                            .withEndAction(() -> splash.setVisibility(View.GONE)).start();
-                }
-            }
-        });
-
-        web.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onGeolocationPermissionsShowPrompt(String o, GeolocationPermissions.Callback cb) {
-                cb.invoke(o, false, false);
-            }
-            @Override
-            public void onPermissionRequest(PermissionRequest r) {
-                r.deny();
-            }
-        });
-    }
-
-    /* ---------------- TOMBOL BACK ---------------- */
-    private void setupBackButton() {
-        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            long lastPress = 0;
-            @Override
-            public void handleOnBackPressed() {
-                if (web.canGoBack()) {
-                    web.goBack();   // balik halaman, bukan keluar app
-                } else {
-                    long now = System.currentTimeMillis();
-                    if (now - lastPress < 2000) {
-                        finish();   // tekan 2x buat keluar
-                    } else {
-                        lastPress = now;
-                        Toast.makeText(MainActivity.this, "Tekan sekali lagi untuk keluar", Toast.LENGTH_SHORT).show();
-                    }
-                }
-            }
-        });
-    }
-
-    /* ---------------- NOTIF CHANNEL & IZIN ---------------- */
-    private void createNotifChannel() {
+    private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                    "toko123_promo", "Promo & Info", NotificationManager.IMPORTANCE_HIGH);
+                    CHANNEL, "Promo & Info", NotificationManager.IMPORTANCE_HIGH);
             ch.setDescription("Info promo, bonus, dan link terbaru");
             ch.enableVibration(true);
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(ch);
         }
-    }
-
-    private void askNotifPermission() {
-        // Android 13+ wajib minta izin notif
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 101);
-            }
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int rc, @NonNull String[] p, @NonNull int[] g) {
-        super.onRequestPermissionsResult(rc, p, g);
-        if (rc == 101) pool.execute(this::register); // update status izin ke server
-    }
-
-    private boolean notifEnabled() {
-        try {
-            return androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled();
-        } catch (Exception e) {
-            return true;
-        }
-    }
-
-    /* ---------------- POPUP UPDATE ---------------- */
-    private void showUpdateDialog(String url, boolean force) {
-        if (isFinishing()) return;
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle("Versi Baru Tersedia")
-                .setMessage(force
-                        ? "Ada versi baru. Kamu harus update dulu untuk melanjutkan."
-                        : "Ada versi baru dengan perbaikan. Update sekarang?")
-                .setPositiveButton("Update", (d, w) -> {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                    if (force) finish();
-                })
-                .setCancelable(!force);
-        if (!force) b.setNegativeButton("Nanti", null);
-        b.show();
-    }
-
-    /* ---------------- UTIL ---------------- */
-    private String getAppVersionName() {
-        try {
-            PackageInfo p = getPackageManager().getPackageInfo(getPackageName(), 0);
-            return p.versionName == null ? "1.0" : p.versionName;
-        } catch (Exception e) { return "1.0"; }
-    }
-
-    private int getAppVersionCode() {
-        try {
-            PackageInfo p = getPackageManager().getPackageInfo(getPackageName(), 0);
-            if (Build.VERSION.SDK_INT >= 28) return (int) p.getLongVersionCode();
-            return p.versionCode;
-        } catch (Exception e) { return 1; }
-    }
-
-    private String capitalize(String s) {
-        if (s == null || s.isEmpty()) return "";
-        return s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase();
-    }
-
-    /* ---------------- LIFECYCLE ---------------- */
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        handleNotifClick(intent);
-    }
-
-    private void handleNotifClick(Intent intent) {
-        if (intent == null || intent.getExtras() == null) return;
-        String url = intent.getStringExtra("click_url");
-        if (url != null && !url.isEmpty() && web != null) {
-            web.loadUrl(url);
-        }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        web.onResume();
-        startHeartbeat();
-        handleNotifClick(getIntent());
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        web.onPause();
-        stopHeartbeat();  // hemat baterai & hemat biaya D1
-    }
-
-    @Override
-    protected void onDestroy() {
-        stopHeartbeat();
-        pool.shutdownNow();
-        if (web != null) web.destroy();
-        super.onDestroy();
     }
 }
