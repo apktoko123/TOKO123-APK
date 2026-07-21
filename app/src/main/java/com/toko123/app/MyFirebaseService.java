@@ -109,13 +109,14 @@ public class MyFirebaseService extends FirebaseMessagingService {
         } catch (Exception ignored) {}
 
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_notif)   // icon WARNA di status bar (trik: PNG warna solid)
+                .setSmallIcon(R.drawable.ic_notif)   // icon BERWARNA di status bar (trik tiktok - PNG warna, bukan siluet putih)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
-                // JANGAN setColor -> biar icon warna tampil apa adanya (gak di-tint jadi 1 warna)
+                // JANGAN pasang setColor! Kalau ada setColor, Android maksa icon status bar jadi 1 warna (putih/tint).
+                // Tanpa setColor + pakai ic_notif PNG berwarna = icon status bar tetap berwarna (kayak tiktok).
                 .setContentIntent(pi)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(body));
 
