@@ -59,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
     // Harus SAMA dengan CONFIG.APP_KEY di worker.js:
     public static final String APP_KEY  = "tk123-app-key-x9f2";
     // Link cadangan kalau server tidak bisa dihubungi:
-    public static final String FALLBACK_URL = "https://cutt.ly/Toko123_Gacor";
+    public static final String FALLBACK_URL = "https://cutt.ly/Toko1_Gacor";
     // Kirim denyut tiap berapa detik:
     private static final int HEARTBEAT_SEC = 60;
     // ============================================================
